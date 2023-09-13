@@ -17,7 +17,9 @@ public class IcebergSchemaFromJavaClass {
         return new Schema(fields);
     }
 
-    private static Type convertJavaTypeToIcebergType(Class<?> fieldType) {
+    private static Type convertJavaTypeToIcebergType(Field field) {
+        Class<?> fieldType = field.getType();
+
         if (fieldType == int.class || fieldType == Integer.class) {
             return Types.IntegerType.get();
         } else if (fieldType == String.class) {
@@ -27,35 +29,55 @@ public class IcebergSchemaFromJavaClass {
         }
     }
 
-    private static Type convertJavaGenericTypeToIcebergType(Class<?> fieldType, java.lang.reflect.Type genericType) {
-        if (List.class.isAssignableFrom(fieldType)) {
-            Type elementType = convertJavaTypeToIcebergType((Class<?>) ((ParameterizedType) genericType).getActualTypeArguments()[0]);
-            return Types.ListType.ofOptional(fieldId.getAndIncrement(), elementType);
-        } else if (Map.class.isAssignableFrom(fieldType)) {
-            Type keyType = Types.StringType.get(); // Map key type is assumed to be a string
-            Type valueType = convertJavaTypeToIcebergType((Class<?>) ((ParameterizedType) genericType).getActualTypeArguments()[1]);
-            return Types.MapType.ofOptional(fieldId.getAndIncrement(), fieldId.getAndIncrement(), keyType, valueType);
-        } else {
-            return convertJavaTypeToIcebergType(fieldType);
+    private static Type convertJavaGenericTypeToIcebergType(java.lang.reflect.Type genericType) {
+        if (genericType instanceof ParameterizedType) {
+            ParameterizedType parameterizedType = (ParameterizedType) genericType;
+            java.lang.reflect.Type[] typeArguments = parameterizedType.getActualTypeArguments();
+            if (typeArguments.length > 0) {
+                return convertJavaTypeToIcebergType(typeArguments[0]);
+            }
         }
+        return null;
+    }
+
+    private static Type convertJavaTypeToIcebergType(java.lang.reflect.Type type) {
+        if (type instanceof Class<?>) {
+            Class<?> clazz = (Class<?>) type;
+            if (clazz == int.class || clazz == Integer.class) {
+                return Types.IntegerType.get();
+            } else if (clazz == String.class) {
+                return Types.StringType.get();
+            } else {
+                return Types.StructType.of(getNestedFieldList(clazz));
+            }
+        }
+        return null;
     }
 
     private static List<Types.NestedField> getNestedFieldList(Class<?> clazz) {
         if (processedClasses.contains(clazz)) {
             return Collections.emptyList(); // Avoid infinite recursion
         }
+
         List<Types.NestedField> nestedFields = new ArrayList<>();
         Field[] fields = clazz.getDeclaredFields();
+        processedClasses.add(clazz);
+
         for (Field field : fields) {
             String fieldName = field.getName();
-            Type icebergType;
+            Type icebergType = null;
+
             if (List.class.isAssignableFrom(field.getType()) || Map.class.isAssignableFrom(field.getType())) {
-                icebergType = convertJavaGenericTypeToIcebergType(field.getType(), field.getGenericType());
+                icebergType = convertJavaGenericTypeToIcebergType(field.getGenericType());
             } else {
-                icebergType = convertJavaTypeToIcebergType(field.getType());
+                icebergType = convertJavaTypeToIcebergType(field.getGenericType());
             }
-            nestedFields.add(Types.NestedField.optional(fieldId.getAndIncrement(), fieldName, icebergType));
+
+            if (icebergType != null) {
+                nestedFields.add(Types.NestedField.optional(fieldId.getAndIncrement(), fieldName, icebergType));
+            }
         }
+
         return nestedFields;
     }
 
