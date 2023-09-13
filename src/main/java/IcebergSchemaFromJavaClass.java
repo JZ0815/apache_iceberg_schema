@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class IcebergSchemaFromJavaClass {
     private static AtomicInteger fieldId = new AtomicInteger(1);
+    private static Set<Class<?>> processedClasses = new HashSet<>();
 
     public static Schema generateSchema(Class<?> clazz) {
         List<Types.NestedField> fields = getNestedFieldList(clazz);
@@ -40,6 +41,9 @@ public class IcebergSchemaFromJavaClass {
     }
 
     private static List<Types.NestedField> getNestedFieldList(Class<?> clazz) {
+        if (processedClasses.contains(clazz)) {
+            return Collections.emptyList(); // Avoid infinite recursion
+        }
         List<Types.NestedField> nestedFields = new ArrayList<>();
         Field[] fields = clazz.getDeclaredFields();
         for (Field field : fields) {
